@@ -5,6 +5,7 @@ create extension if not exists pgcrypto;
 
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
+  bulk_job_id uuid references public.bulk_jobs(id) on delete set null,
   product_code text not null,
   quantity integer not null check (quantity > 0 and quantity <= 100),
   amount_kes integer not null check (amount_kes >= 0),
@@ -129,6 +130,8 @@ create table if not exists public.system_health (
   metadata jsonb,
   checked_at timestamptz not null default now()
 );
+
+create index if not exists orders_bulk_job_idx on public.orders(bulk_job_id);
 
 create index if not exists extraction_jobs_status_lease_idx on public.extraction_jobs(status, lease_until);
 create index if not exists extraction_jobs_order_idx on public.extraction_jobs(order_id);
