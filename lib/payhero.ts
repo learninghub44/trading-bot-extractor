@@ -34,7 +34,7 @@ export async function createPayHeroPayment(input: PaymentInput) {
     vendor_config: { vendor_id: Number(requireEnv("PAYHERO_VENDOR_ID")) },
     provider_config: {
       network_id: requireEnv("PAYHERO_NETWORK_ID"),
-      provider_id: process.env.PAYHERO_PROVIDER_ID,
+      provider_id: requireEnv("PAYHERO_PROVIDER_ID"),
       network_name: requireEnv("PAYHERO_NETWORK_NAME"),
       network_code: requireEnv("PAYHERO_NETWORK_CODE"),
       account_type: process.env.PAYHERO_ACCOUNT_TYPE || "momo",
