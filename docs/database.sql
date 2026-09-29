@@ -15,6 +15,8 @@ create table if not exists public.orders (
   customer_email text,
   source_url text,
   external_reference text not null unique,
+  user_id uuid references auth.users(id) on delete set null,
+  customer_token_hash text,
   failure_reason text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -134,6 +136,8 @@ create table if not exists public.system_health (
 alter table public.orders drop constraint if exists orders_bulk_job_id_fkey;
 alter table public.orders add constraint orders_bulk_job_id_fkey foreign key (bulk_job_id) references public.bulk_jobs(id) on delete set null;
 create index if not exists orders_bulk_job_idx on public.orders(bulk_job_id);
+create index if not exists orders_user_idx on public.orders(user_id);
+create index if not exists orders_token_idx on public.orders(customer_token_hash);
 
 create index if not exists extraction_jobs_status_lease_idx on public.extraction_jobs(status, lease_until);
 create index if not exists extraction_jobs_order_idx on public.extraction_jobs(order_id);
@@ -221,6 +225,13 @@ alter table public.download_events enable row level security;
 alter table public.download_tokens enable row level security;
 alter table public.webhook_events enable row level security;
 alter table public.system_health enable row level security;
+
+revoke all on function public.claim_extraction_jobs(text, integer) from public, anon, authenticated;
+revoke all on function public.touch_extraction_job(uuid, text) from public, anon, authenticated;
+revoke all on function public.complete_extraction_job(uuid, text, text, text, text, text, text, bigint, text, text) from public, anon, authenticated;
+grant execute on function public.claim_extraction_jobs(text, integer) to service_role;
+grant execute on function public.touch_extraction_job(uuid, text) to service_role;
+grant execute on function public.complete_extraction_job(uuid, text, text, text, text, text, text, bigint, text, text) to service_role;
 
 -- No anon/authenticated policies are created intentionally.
 -- Add narrowly scoped auth.uid() policies only if direct client-side table access is ever introduced.
