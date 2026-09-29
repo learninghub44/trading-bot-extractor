@@ -1,0 +1,15 @@
+services:
+  web:
+    build: .
+    ports: ["3000:3000"]
+    env_file: .env
+    depends_on: [extractor]
+  extractor:
+    build: ./services/extractor
+    ports: ["8000:8000"]
+    env_file: .env
+  worker:
+    build: ./services/extractor
+    command: ["python","-m","app.worker"]
+    env_file: .env
+    depends_on: [extractor]
