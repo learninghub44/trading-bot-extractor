@@ -83,12 +83,12 @@ def process(job):
         key=f"results/{job_id}/{digest}.xml"
         s3.put_object(Bucket=R2_BUCKET,Key=key,Body=xml,ContentType="application/xml",CacheControl="private, max-age=0, no-store")
         rpc("complete_extraction_job",{"p_id":job_id,"p_worker_id":WORKER_ID,"p_status":"COMPLETED","p_result_key":key,"p_filename":data.get("filename") or "trading-bot.xml","p_bot_name":data.get("bot_name") or "trading-bot","p_sha256":digest,"p_size":len(xml)})
-table_insert("extraction_attempts",{"job_id":job_id,"adapter":data.get("strategy") or "engine","strategy":data.get("strategy") or "engine","status":"SUCCESS","duration_ms":int((time.time()-started)*1000)})
+        table_insert("extraction_attempts",{"job_id":job_id,"adapter":data.get("strategy") or "engine","strategy":data.get("strategy") or "engine","status":"SUCCESS","duration_ms":int((time.time()-started)*1000)})
         table_update("bulk_items",{"status":"COMPLETED"},{"extraction_job_id":job_id})
         build_bulk_if_ready(job_id)
     except Exception as exc:
         rpc("complete_extraction_job",{"p_id":job_id,"p_worker_id":WORKER_ID,"p_status":"FAILED","p_error_code":"EXTRACTION_FAILED","p_error_message":str(exc)[:1000]})
-table_insert("extraction_attempts",{"job_id":job_id,"adapter":"engine","strategy":"orchestrator","status":"FAILED","duration_ms":int((time.time()-started)*1000),"error_code":"EXTRACTION_FAILED","metadata":{"message":str(exc)[:500]}})
+        table_insert("extraction_attempts",{"job_id":job_id,"adapter":"engine","strategy":"orchestrator","status":"FAILED","duration_ms":int((time.time()-started)*1000),"error_code":"EXTRACTION_FAILED","metadata":{"message":str(exc)[:500]}})
         table_update("bulk_items",{"status":"FAILED","error_code":"EXTRACTION_FAILED","error_message":str(exc)[:500]},{"extraction_job_id":job_id})
         build_bulk_if_ready(job_id)
 
