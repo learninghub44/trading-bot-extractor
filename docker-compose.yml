@@ -12,4 +12,6 @@ services:
     build: ./services/extractor
     command: ["python","-m","app.worker"]
     env_file: .env
+    environment:
+      EXTRACTOR_SELF_URL: http://extractor:8000
     depends_on: [extractor]
