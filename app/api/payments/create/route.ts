@@ -3,7 +3,9 @@ import { z } from "zod";
 import { adminClient } from "@/lib/server";
 import { createPayHeroPayment } from "@/lib/payhero";
 import { packageByCode } from "@/lib/pricing";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
+import { cookies } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
 
 const schema = z.object({
   packageCode: z.string().min(1),
@@ -22,6 +24,10 @@ export async function POST(request: Request) {
   if (!product) return NextResponse.json({ error: "Unknown package." }, { status: 400 });
 
   const db = adminClient();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const customerToken = randomUUID() + randomUUID();
+  const customerTokenHash = createHash("sha256").update(customerToken).digest("hex");
   if (parsed.data.bulkJobId) {
     const { data: bulk } = await db.from("bulk_jobs").select("id,amount_kes,status").eq("id", parsed.data.bulkJobId).maybeSingle();
     if (!bulk || bulk.status !== "PAYMENT_PENDING" || bulk.amount_kes !== product.priceKes)
@@ -31,7 +37,7 @@ export async function POST(request: Request) {
   const orderId = randomUUID();
   const reference = `TBE-${orderId.replaceAll("-", "").slice(0, 20)}`;
   const { error } = await db.from("orders").insert({
-    id: orderId, bulk_job_id: parsed.data.bulkJobId ?? null, product_code: product.code,
+    id: orderId, user_id: user?.id ?? null, customer_token_hash: customerTokenHash, bulk_job_id: parsed.data.bulkJobId ?? null, product_code: product.code,
     quantity: product.quantity, amount_kes: product.priceKes, currency: "KES",
     status: "PAYMENT_PENDING", customer_phone: parsed.data.phone,
     customer_email: parsed.data.email ?? null, source_url: parsed.data.sourceUrl ?? null,
@@ -51,6 +57,8 @@ export async function POST(request: Request) {
       provider_reference: payment?.merchant_reference || payment?.reference || null,
       amount_kes: product.priceKes, status: "PENDING", raw_response: payment,
     });
+    const cookieStore=await cookies();
+    cookieStore.set("tbe_access", customerToken, {httpOnly:true,secure:process.env.NODE_ENV==="production",sameSite:"lax",path:"/",maxAge:60*60*24*30});
     return NextResponse.json({ orderId, reference, payment });
   } catch (error) {
     await db.from("orders").update({ status: "PAYMENT_FAILED", failure_reason: error instanceof Error ? error.message : "PAYMENT_ERROR" }).eq("id", orderId);
