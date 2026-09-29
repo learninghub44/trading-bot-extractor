@@ -1,138 +1,53 @@
 from __future__ import annotations
 
-import ipaddress
-import socket
-from urllib.parse import urljoin, urlparse
+import os
 from uuid import uuid4
 
-import httpx
-from bs4 import BeautifulSoup
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel, HttpUrl
-from lxml import etree
 
-app = FastAPI(title="Trading Bot Extractor", version="0.1.0")
+from .extractor import extract, from_xml
 
-MAX_BYTES = 10 * 1024 * 1024
-TIMEOUT = httpx.Timeout(15.0, connect=5.0)
-
+app = FastAPI(title="Trading Bot Extractor Engine", version="1.0.0")
 
 class ExtractRequest(BaseModel):
     url: HttpUrl
-
+    use_browser: bool = True
 
 class ExtractResponse(BaseModel):
     id: str
     status: str
-    source: str | None = None
+    strategy: str | None = None
     filename: str | None = None
+    bot_name: str | None = None
+    sha256: str | None = None
+    size: int | None = None
     xml: str | None = None
     error: str | None = None
 
-
-def assert_public_host(url: str) -> None:
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("Only HTTP(S) URLs are supported.")
-
-    host = parsed.hostname
-    try:
-        addresses = socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)
-    except socket.gaierror as exc:
-        raise ValueError("Host could not be resolved.") from exc
-
-    for address in addresses:
-        ip = ipaddress.ip_address(address[4][0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-            raise ValueError("Private or internal destinations are not allowed.")
-
-
-async def fetch(url: str) -> tuple[str, bytes, str]:
-    current = url
-    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=False, headers={"user-agent": "TradingBotExtractor/0.1"}) as client:
-        for _ in range(5):
-            assert_public_host(current)
-            response = await client.get(current)
-            if response.status_code in {301, 302, 303, 307, 308}:
-                location = response.headers.get("location")
-                if not location:
-                    raise ValueError("Redirect has no destination.")
-                current = urljoin(current, location)
-                continue
-
-            if response.status_code >= 400:
-                raise ValueError(f"Source returned HTTP {response.status_code}.")
-
-            content = response.content
-            if len(content) > MAX_BYTES:
-                raise ValueError("Source exceeds the maximum allowed size.")
-            return current, content, response.headers.get("content-type", "")
-    raise ValueError("Too many redirects.")
-
-
-def validate_xml(raw: bytes) -> str:
-    parser = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=False)
-    root = etree.fromstring(raw, parser=parser)
-    if root.tag is None:
-        raise ValueError("XML has no root element.")
-    return etree.tostring(root, encoding="unicode", xml_declaration=True)
-
-
-def extract_xml(url: str, content: bytes, content_type: str) -> tuple[str, str] | None:
-    stripped = content.lstrip()
-    if "xml" in content_type.lower() or stripped.startswith(b"<?xml") or stripped.startswith(b"<"):
-        try:
-            xml = validate_xml(content)
-            root = etree.fromstring(xml.encode())
-            if root.tag.lower().endswith("xml") or "block" in xml.lower() or "bot" in xml.lower():
-                return xml, "direct"
-        except (etree.XMLSyntaxError, ValueError):
-            pass
-
-    if "html" in content_type.lower() or b"<html" in content[:2048].lower():
-        soup = BeautifulSoup(content, "html.parser")
-        candidates = []
-        for tag in soup.find_all(["a", "link"]):
-            href = tag.get("href")
-            if href and (href.lower().endswith(".xml") or "download" in href.lower() or "bot" in href.lower()):
-                candidates.append(urljoin(url, href))
-        for candidate in candidates[:10]:
-            try:
-                # Candidate URLs are fetched through the same SSRF-safe path.
-                # This MVP returns only discovered links; recursive extraction is added per adapter.
-                return "", f"discovered:{candidate}"
-            except Exception:
-                continue
-
-    return None
-
+def authorized(secret: str | None):
+    expected=os.getenv("EXTRACTOR_SHARED_SECRET")
+    if expected and secret != expected: raise HTTPException(status_code=401, detail="UNAUTHORIZED")
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
-
+    return {"status":"ok","service":"extractor","version":"1.0.0"}
 
 @app.post("/extract", response_model=ExtractResponse)
-async def extract(request: ExtractRequest):
-    job_id = str(uuid4())
+async def extract_route(request: ExtractRequest, x_extractor_secret: str | None = Header(default=None)):
+    authorized(x_extractor_secret)
+    job_id=str(uuid4())
     try:
-        final_url, content, content_type = await fetch(str(request.url))
-        result = extract_xml(final_url, content, content_type)
-        if not result:
-            return ExtractResponse(id=job_id, status="FAILED", error="BOT_DATA_NOT_FOUND")
+        result=await extract(str(request.url), request.use_browser)
+        return ExtractResponse(id=job_id,status="COMPLETED",strategy=result.strategy,filename=result.filename,bot_name=result.bot_name,sha256=result.sha256,size=len(result.xml),xml=result.xml.decode("utf-8"))
+    except Exception as exc:
+        return ExtractResponse(id=job_id,status="FAILED",error=str(exc))
 
-        xml, source = result
-        if not xml:
-            return ExtractResponse(id=job_id, status="DISCOVERED", source=source)
-
-        return ExtractResponse(
-            id=job_id,
-            status="COMPLETED",
-            source=source,
-            filename="trading-bot.xml",
-            xml=xml,
-        )
-    except ValueError as exc:
-        return ExtractResponse(id=job_id, status="FAILED", error=str(exc))
-    except httpx.HTTPError:
-        return ExtractResponse(id=job_id, status="FAILED", error="SOURCE_REQUEST_FAILED")
+@app.post("/extract-upload", response_model=ExtractResponse)
+async def extract_upload(file: UploadFile = File(...), x_extractor_secret: str | None = Header(default=None)):
+    authorized(x_extractor_secret)
+    raw=await file.read()
+    if len(raw)>10*1024*1024: raise HTTPException(status_code=413, detail="FILE_TOO_LARGE")
+    result=from_xml(raw,"upload")
+    if not result: return ExtractResponse(id=str(uuid4()),status="FAILED",error="INVALID_OR_UNSUPPORTED_BOT_XML")
+    return ExtractResponse(id=str(uuid4()),status="COMPLETED",strategy=result.strategy,filename=file.filename or result.filename,bot_name=result.bot_name,sha256=result.sha256,size=len(result.xml),xml=result.xml.decode("utf-8"))
