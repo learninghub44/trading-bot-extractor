@@ -5,7 +5,7 @@ create extension if not exists pgcrypto;
 
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
-  bulk_job_id uuid references public.bulk_jobs(id) on delete set null,
+  bulk_job_id uuid,
   product_code text not null,
   quantity integer not null check (quantity > 0 and quantity <= 100),
   amount_kes integer not null check (amount_kes >= 0),
@@ -131,6 +131,8 @@ create table if not exists public.system_health (
   checked_at timestamptz not null default now()
 );
 
+alter table public.orders drop constraint if exists orders_bulk_job_id_fkey;
+alter table public.orders add constraint orders_bulk_job_id_fkey foreign key (bulk_job_id) references public.bulk_jobs(id) on delete set null;
 create index if not exists orders_bulk_job_idx on public.orders(bulk_job_id);
 
 create index if not exists extraction_jobs_status_lease_idx on public.extraction_jobs(status, lease_until);
