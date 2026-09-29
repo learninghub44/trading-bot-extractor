@@ -12,6 +12,7 @@ const schema = z.object({
   firstName: z.string().max(80).optional(),
   lastName: z.string().max(80).optional(),
   sourceUrl: z.string().url().max(2048).optional(),
+  bulkJobId: z.string().uuid().optional(),
 });
 
 export async function POST(request: Request) {
@@ -21,13 +22,20 @@ export async function POST(request: Request) {
   if (!product) return NextResponse.json({ error: "Unknown package." }, { status: 400 });
 
   const db = adminClient();
+  if (parsed.data.bulkJobId) {
+    const { data: bulk } = await db.from("bulk_jobs").select("id,amount_kes,status").eq("id", parsed.data.bulkJobId).maybeSingle();
+    if (!bulk || bulk.status !== "PAYMENT_PENDING" || bulk.amount_kes !== product.priceKes)
+      return NextResponse.json({ error: "Bulk order is not payable." }, { status: 409 });
+  }
+
   const orderId = randomUUID();
   const reference = `TBE-${orderId.replaceAll("-", "").slice(0, 20)}`;
   const { error } = await db.from("orders").insert({
-    id: orderId, product_code: product.code, quantity: product.quantity,
-    amount_kes: product.priceKes, currency: "KES", status: "PAYMENT_PENDING",
-    customer_phone: parsed.data.phone, customer_email: parsed.data.email ?? null,
-    source_url: parsed.data.sourceUrl ?? null, external_reference: reference,
+    id: orderId, bulk_job_id: parsed.data.bulkJobId ?? null, product_code: product.code,
+    quantity: product.quantity, amount_kes: product.priceKes, currency: "KES",
+    status: "PAYMENT_PENDING", customer_phone: parsed.data.phone,
+    customer_email: parsed.data.email ?? null, source_url: parsed.data.sourceUrl ?? null,
+    external_reference: reference,
   });
   if (error) return NextResponse.json({ error: "Could not create order." }, { status: 500 });
 
