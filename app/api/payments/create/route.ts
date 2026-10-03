@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { adminClient } from "@/lib/server";
-import { createPayHeroPayment } from "@/lib/payhero";
+import { createPayHeroPayment, signCallbackReference } from "@/lib/payhero";
 import { packageByCode } from "@/lib/pricing";
 import { randomUUID, createHash } from "crypto";
 import { cookies } from "next/headers";
@@ -45,23 +45,34 @@ export async function POST(request: Request) {
   });
   if (error) return NextResponse.json({ error: "Could not create order." }, { status: 500 });
 
+  // Insert the payment row before calling PayHero so a fast callback always finds it.
+  const { data: paymentRow, error: paymentRowError } = await db.from("payments").insert({
+    order_id: orderId, provider: "payhero", amount_kes: product.priceKes, status: "PENDING",
+  }).select("id").single();
+  if (paymentRowError || !paymentRow) {
+    await db.from("orders").update({ status: "PAYMENT_FAILED", failure_reason: "PAYMENT_RECORD_ERROR" }).eq("id", orderId);
+    return NextResponse.json({ error: "Could not create order." }, { status: 500 });
+  }
+
   try {
     const payment = await createPayHeroPayment({
       reference, amount: product.priceKes, phone: parsed.data.phone,
       email: parsed.data.email, firstName: parsed.data.firstName, lastName: parsed.data.lastName,
-      callbackUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/api/webhooks/payhero`,
+      callbackUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/api/webhooks/payhero?sig=${signCallbackReference(reference)}`,
       redirectUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/payment/return?order=${orderId}`,
     });
-    await db.from("payments").insert({
-      order_id: orderId, provider: "payhero",
-      provider_reference: payment?.merchant_reference || payment?.reference || null,
-      amount_kes: product.priceKes, status: "PENDING", raw_response: payment,
-    });
+    // raw_response is always stored; provider_reference only if a callback hasn't already set it.
+    await db.from("payments").update({ raw_response: payment, updated_at: new Date().toISOString() }).eq("id", paymentRow.id);
+    const providerReference = payment?.merchant_reference || payment?.reference || null;
+    if (providerReference) {
+      await db.from("payments").update({ provider_reference: providerReference }).eq("id", paymentRow.id).is("provider_reference", null);
+    }
     const cookieStore=await cookies();
     cookieStore.set("tbe_access", customerToken, {httpOnly:true,secure:process.env.NODE_ENV==="production",sameSite:"lax",path:"/",maxAge:60*60*24*30});
     return NextResponse.json({ orderId, reference, payment });
   } catch (error) {
-    await db.from("orders").update({ status: "PAYMENT_FAILED", failure_reason: error instanceof Error ? error.message : "PAYMENT_ERROR" }).eq("id", orderId);
+    await db.from("orders").update({ status: "PAYMENT_FAILED", failure_reason: error instanceof Error ? error.message : "PAYMENT_ERROR" }).eq("id", orderId).eq("status", "PAYMENT_PENDING");
+    await db.from("payments").update({ status: "FAILED", updated_at: new Date().toISOString() }).eq("id", paymentRow.id).eq("status", "PENDING");
     return NextResponse.json({ error: "Payment request could not be started." }, { status: 502 });
   }
 }

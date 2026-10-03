@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "crypto";
 import { requireEnv } from "./server";
 
 type PaymentInput = {
@@ -59,4 +60,16 @@ export async function createPayHeroPayment(input: PaymentInput) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.message || "PAYMENT_PROVIDER_ERROR");
   return data;
+}
+
+/** HMAC bound to an order reference; embedded in the callback URL so only PayHero (who we gave the URL) can call it. */
+export function signCallbackReference(reference: string) {
+  return createHmac("sha256", requireEnv("PAYHERO_WEBHOOK_SECRET")).update(reference).digest("hex");
+}
+
+export function verifyCallbackSignature(reference: string, signature: string | null) {
+  if (!reference || !signature) return false;
+  const expected = Buffer.from(signCallbackReference(reference));
+  const given = Buffer.from(signature);
+  return expected.length === given.length && timingSafeEqual(expected, given);
 }

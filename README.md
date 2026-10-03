@@ -72,7 +72,7 @@ Copy .env.example to .env. Configure Supabase, R2, PayHero, the public site URL 
 
 ## Production checklist
 
-Before going live: create a dedicated Supabase project; run and review docs/database.sql; create a private R2 bucket; configure PayHero credentials and enabled Kenya network configuration; configure the PayHero callback URL as /api/webhooks/payhero; configure the extractor secret; deploy web, extractor and worker; run CI; test successful and failed payment callbacks including duplicates; test extraction failures; test SSRF and XML security; test bulk ZIP generation; verify download expiry and ownership; configure logs, alerts, backups and retention.
+Before going live: create a dedicated Supabase project; run and review docs/database.sql; create a private R2 bucket; configure PayHero credentials and enabled Kenya network configuration; set PAYHERO_WEBHOOK_SECRET (the callback URL sent to PayHero is HMAC-signed with it; unsigned or forged callbacks get 401 — the callback URL is generated per payment, so there is nothing to configure in the PayHero dashboard unless it overrides per-request URLs, in which case it must include the ?sig= value); configure the extractor secret; deploy web, extractor and worker; run CI; test successful and failed payment callbacks including duplicates; test extraction failures; test SSRF and XML security; test bulk ZIP generation; verify download expiry and ownership; configure logs, alerts, backups and retention.
 
 ## Pricing
 
