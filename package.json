@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "opennextjs-cloudflare build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -12,7 +12,8 @@
     "build:cf": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
-    "cf:check": "opennextjs-cloudflare build && wrangler deploy --dry-run --outdir .wrangler/dry-run"
+    "cf:check": "opennextjs-cloudflare build && wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "build:next": "next build"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.8",
