@@ -6,6 +6,10 @@ on:
 jobs:
   web:
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+      NEXT_PUBLIC_SITE_URL: https://example.com
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -13,13 +17,6 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm run build
-  extractor:
-    runs-on: ubuntu-latest
-    defaults: {run: {working-directory: services/extractor}}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: "3.12"}
-      - run: pip install -r requirements.txt
-      - run: pytest
+      - run: npm test
+      # Builds the Worker bundle and validates it with wrangler (no credentials needed).
+      - run: npm run cf:check

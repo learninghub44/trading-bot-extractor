@@ -1,24 +1,30 @@
 # Trading Bot Extractor
 
-Production-oriented SaaS for extracting supported trading bot XML from public or user-authorized sources.
+Production-oriented SaaS for extracting supported trading bot XML from public or user-authorized sources. Runs entirely on Cloudflare Workers.
 
-## Production architecture
+## Production architecture (Cloudflare Workers)
 
-- Next.js web/API layer
-- Supabase/Postgres for orders, payments, jobs, attempts, bulk jobs and webhook idempotency
-- Python/FastAPI extraction engine
-- Playwright/Chromium for browser-rendered public pages
-- Cloudflare R2 private object storage
+One Worker (Next.js via OpenNext) serves the UI/API **and** runs extraction. No servers, no Python, no containers.
+
+- Next.js web/API on Cloudflare Workers (`@opennextjs/cloudflare`)
+- Supabase/Postgres for orders, payments, jobs, attempts, bulk jobs and webhook audit
+- TypeScript extraction engine in the Worker (`lib/engine`) — SSRF-safe fetch, XML validation, strategy chain
+- Cloudflare R2 bucket binding `RESULTS` for results and bulk ZIPs; downloads are short-lived HMAC-signed links served by the Worker
+- Cron Trigger (every minute) drives retries and heals anything the webhook missed
+- Optional Cloudflare Browser Rendering (REST) for JavaScript-rendered pages
 - PayHero Africa for Kenyan payment collection
-- Long-running worker with database-backed job claiming and leases
-- Signed temporary downloads
-- Bulk ZIP + CSV manifest generation
-- GitHub Actions CI
-- Docker deployment
+
+## After payment: what happens
+
+1. PayHero calls the signed webhook. The order moves `PAYMENT_PENDING → PAID` atomically (duplicates and retries are harmless).
+2. Jobs are created idempotently (job id = order / bulk item id) and an extraction run starts immediately via `waitUntil`.
+3. Jobs are claimed with row locks + 3-minute leases. Transient failures (timeouts, 429/5xx, network) retry with backoff up to `MAX_JOB_ATTEMPTS`; "no bot found" on the fast pass is retried once with browser rendering; permanent errors (404, blocked destination) fail immediately with a clear code.
+4. The every-minute cron re-claims expired leases, retries delayed jobs, and creates jobs for PAID orders that somehow have none.
+5. The payment-return page polls `/api/orders/:id` and offers the download as soon as the job completes. If extraction fails, the buyer can upload the bot file against the same paid order (`/api/uploads`) — failed jobs don't consume the quota.
 
 ## Extraction pipeline
 
-The engine tries direct XML, downloadable links, embedded XML, embedded JSON, public page data, browser-rendered pages, source-specific adapters and uploaded supported XML files as applicable. Every candidate is validated before it becomes a result. Missing trading logic is never invented.
+Strategy chain (cheap → expensive) under one fetch/time budget: public share-link rewrites (Google Drive/Docs, Dropbox, GitHub, Gist, Pastebin, GitLab) → the URL itself (raw XML, JSON, HTML, ZIP) → XML hidden as escaped JSON/JS strings, HTML-entity text, URL-encoded text, base64, `<script>` JSON blobs → best-scored linked files up to two levels deep → browser rendering. Every candidate must be well-formed, DTD/entity-free and bot-shaped (Blockly/Deriv Bot Builder or bot/strategy schemas) before it is accepted. The original document is delivered unchanged; missing trading logic is never invented.
 
 The platform does not bypass authentication, encryption, CAPTCHA, DRM, paywalls, access controls, rate limits, or private/internal network boundaries.
 
@@ -41,41 +47,28 @@ The browser is never trusted as proof of payment. Webhook events are idempotent.
 - Supabase RLS enabled on application tables
 - service-role credentials remain server-side
 
-## Setup
+## Setup & deploy (Cloudflare)
 
-Copy .env.example to .env. Configure Supabase, R2, PayHero, the public site URL and the extractor shared secret. Run docs/database.sql in the dedicated Supabase project.
-
-### Web
+Requires a Workers **Paid** plan (the bundle exceeds the free size limit and extraction makes many subrequests).
 
     npm install
-    npm run typecheck
-    npm run lint
-    npm run build
-    npm start
+    npx wrangler r2 bucket create trading-bot-extractor        # once
+    # run docs/database.sql in your Supabase project (once)
 
-### Extraction service
+    # secrets (each prompts for the value)
+    npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+    npx wrangler secret put PAYHERO_API_USERNAME
+    npx wrangler secret put PAYHERO_API_PASSWORD
+    npx wrangler secret put PAYHERO_WEBHOOK_SECRET             # openssl rand -hex 32
+    npx wrangler secret put DOWNLOAD_SIGNING_SECRET            # openssl rand -hex 32
+    npx wrangler secret put CF_BROWSER_RENDERING_TOKEN         # optional, enables browser strategy
 
-    cd services/extractor
-    python -m venv .venv
-    pip install -r requirements.txt
-    playwright install chromium
-    uvicorn app.main:app --host 0.0.0.0 --port 8000
+Set the non-secret vars from `.env.example` (`NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `PAYHERO_*`, `CF_ACCOUNT_ID`) in the Worker's settings or `wrangler.jsonc`. `NEXT_PUBLIC_*` must also be present in the build environment.
 
-### Worker
+    npm run deploy        # build with OpenNext + wrangler deploy
+    npm run preview       # local Workers runtime (uses .dev.vars)
+    npm run cf:check      # build + `wrangler deploy --dry-run`, no credentials needed
 
-    cd services/extractor
-    python -m app.worker
+CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests and `cf:check`. `deploy.yml` is a manual deploy using `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets. Hit `/api/health` after deploy: it reports database, R2 binding and required secrets.
 
-### Docker
-
-    docker compose up --build
-
-## Production checklist
-
-Before going live: create a dedicated Supabase project; run and review docs/database.sql; create a private R2 bucket; configure PayHero credentials and enabled Kenya network configuration; set PAYHERO_WEBHOOK_SECRET (the callback URL sent to PayHero is HMAC-signed with it; unsigned or forged callbacks get 401 — the callback URL is generated per payment, so there is nothing to configure in the PayHero dashboard unless it overrides per-request URLs, in which case it must include the ?sig= value); configure the extractor secret; deploy web, extractor and worker; run CI; test successful and failed payment callbacks including duplicates; test extraction failures; test SSRF and XML security; test bulk ZIP generation; verify download expiry and ownership; configure logs, alerts, backups and retention.
-
-## Pricing
-
-Pricing is environment-configurable. Defaults: Single KES 100; 10 KES 900; 25 KES 2,000; 50 KES 3,750; 100 KES 7,000.
-
-Do not commit credentials or production .env files.
+Before going live: test a real payment end to end (check the logs for `payhero webhook: no amount in callback`), a failed payment, a duplicate callback, an extraction that needs a retry, and a bulk ZIP. Confirm the PayHero dashboard isn't overriding the signed callback URL.

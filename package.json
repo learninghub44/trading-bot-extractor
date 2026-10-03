@@ -8,14 +8,18 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:cf": "opennextjs-cloudflare build",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "cf:check": "opennextjs-cloudflare build && wrangler deploy --dry-run --outdir .wrangler/dry-run"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.864.0",
-    "@aws-sdk/s3-request-presigner": "^3.864.0",
+    "@opennextjs/cloudflare": "^1.20.8",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.57.0",
-    "jszip": "^3.10.1",
+    "fast-xml-parser": "^5.11.2",
+    "fflate": "^0.8.3",
     "next": "^15.5.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -30,6 +34,7 @@
     "eslint": "^9.35.0",
     "eslint-config-next": "^15.5.0",
     "typescript": "^5.9.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "^4.147.0"
   }
 }

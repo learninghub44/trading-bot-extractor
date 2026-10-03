@@ -1,10 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
+import { requireStr, type AppEnv } from "./env";
 
-export function adminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Supabase server configuration is missing.");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+export function adminClient(env: AppEnv = process.env as AppEnv) {
+  return createClient(requireStr(env, "NEXT_PUBLIC_SUPABASE_URL"), requireStr(env, "SUPABASE_SERVICE_ROLE_KEY"), {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }
 
 export function requireEnv(name: string) {

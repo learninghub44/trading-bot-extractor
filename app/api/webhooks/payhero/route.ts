@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { adminClient } from "@/lib/server";
 import { verifyCallbackSignature } from "@/lib/payhero";
 import { createHash } from "crypto";
+import { runtime } from "@/lib/env";
+import { createJobsForPaidOrder } from "@/lib/jobs/create";
+import { runPendingJobs } from "@/lib/jobs/runner";
 
 const ok = () => NextResponse.json({ ok: true });
 
@@ -18,7 +21,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
   }
 
-  const db = adminClient();
+  const db = adminClient(runtime().env);
   const now = () => new Date().toISOString();
 
   const { data: order } = await db
@@ -84,25 +87,16 @@ export async function POST(request: Request) {
     updated_at: now(),
   }).eq("order_id", order.id);
 
-  if (order.bulk_job_id) {
-    await db.from("bulk_jobs").update({ status: "PAID" }).eq("id", order.bulk_job_id);
-    const { data: items } = await db.from("bulk_items").select("id,source_url")
-      .eq("bulk_job_id", order.bulk_job_id).eq("status", "WAITING_FOR_PAYMENT");
-    if (items?.length) {
-      const rows = items.map((item) => ({ source_url: item.source_url, status: "PAID", payment_status: "PAID", order_id: order.id }));
-      const { data: jobs } = await db.from("extraction_jobs").insert(rows).select("id,source_url");
-      for (const job of jobs ?? []) {
-        await db.from("bulk_items")
-          .update({ status: "QUEUED", extraction_job_id: job.id })
-          .eq("id", items.find((i) => i.source_url === job.source_url)?.id);
-      }
-    }
-  } else if (order.source_url) {
-    await db.from("extraction_jobs").insert({
-      order_id: order.id, source_url: order.source_url, source_type: "url",
-      status: "PAID", payment_status: "PAID",
-    });
+  // Create jobs (idempotent), then start extracting right away without delaying the webhook ack.
+  // If this fails, the order is already PAID and the cron reconciler creates the jobs within a minute.
+  try {
+    await createJobsForPaidOrder(db, order);
+  } catch (error) {
+    console.error("payhero webhook: job creation failed, cron will reconcile", error);
   }
+  const { env, ctx } = runtime();
+  const kick = runPendingJobs(env, { mode: "inline" }).catch((e) => console.error("inline run failed", e));
+  ctx?.waitUntil(kick);
 
   return ok();
 }

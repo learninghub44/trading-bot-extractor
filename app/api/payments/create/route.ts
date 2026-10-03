@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { adminClient } from "@/lib/server";
+import { runtime } from "@/lib/env";
 import { createPayHeroPayment, signCallbackReference } from "@/lib/payhero";
 import { packageByCode } from "@/lib/pricing";
 import { randomUUID, createHash } from "crypto";
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
   const product = packageByCode(parsed.data.packageCode);
   if (!product) return NextResponse.json({ error: "Unknown package." }, { status: 400 });
 
-  const db = adminClient();
+  const db = adminClient(runtime().env);
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const customerToken = randomUUID() + randomUUID();

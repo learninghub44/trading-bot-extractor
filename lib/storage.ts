@@ -1,38 +1,38 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { requireEnv } from "./server";
+import { createHmac, timingSafeEqual } from "crypto";
+import { bucket, envNum, requireStr, type AppEnv } from "./env";
 
-let client: S3Client | undefined;
+export async function putPrivateObject(env: AppEnv, key: string, body: Uint8Array, contentType: string) {
+  await bucket(env).put(key, body, { httpMetadata: { contentType, cacheControl: "private, max-age=0, no-store" } });
+}
 
-function storage() {
-  if (!client) {
-    client = new S3Client({
-      region: "auto",
-      endpoint: requireEnv("R2_ENDPOINT"),
-      credentials: {
-        accessKeyId: requireEnv("R2_ACCESS_KEY_ID"),
-        secretAccessKey: requireEnv("R2_SECRET_ACCESS_KEY"),
-      },
-    });
+export async function getPrivateObject(env: AppEnv, key: string) {
+  return bucket(env).get(key);
+}
+
+const b64u = (s: string) => Buffer.from(s).toString("base64url");
+
+function sign(env: AppEnv, payload: string) {
+  return createHmac("sha256", requireStr(env, "DOWNLOAD_SIGNING_SECRET")).update(payload).digest("base64url");
+}
+
+/** Short-lived signed path served by /api/files/[token]; replaces S3 presigned URLs (no S3 creds needed on Workers). */
+export function signedDownloadPath(env: AppEnv, key: string, filename: string, contentType = "application/xml") {
+  const ttl = envNum(env, "DOWNLOAD_TTL_SECONDS", 900);
+  const payload = b64u(JSON.stringify({ k: key, f: filename, t: contentType, e: Math.floor(Date.now() / 1000) + ttl }));
+  return { path: `/api/files/${payload}.${sign(env, payload)}`, expiresIn: ttl };
+}
+
+export function verifyDownloadToken(env: AppEnv, token: string): { key: string; filename: string; contentType: string } | null {
+  const [payload, sig] = token.split(".");
+  if (!payload || !sig) return null;
+  const expected = Buffer.from(sign(env, payload));
+  const given = Buffer.from(sig);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { k: string; f: string; t: string; e: number };
+    if (!data.k || data.e < Date.now() / 1000) return null;
+    return { key: data.k, filename: data.f || "download", contentType: data.t || "application/octet-stream" };
+  } catch {
+    return null;
   }
-  return client;
-}
-
-export async function putPrivateObject(key: string, body: Uint8Array | Buffer, contentType: string) {
-  await storage().send(new PutObjectCommand({
-    Bucket: requireEnv("R2_BUCKET"),
-    Key: key,
-    Body: body,
-    ContentType: contentType,
-    CacheControl: "private, max-age=0, no-store",
-  }));
-}
-
-export async function signedDownload(key: string, filename: string) {
-  return getSignedUrl(storage(), new GetObjectCommand({
-    Bucket: requireEnv("R2_BUCKET"),
-    Key: key,
-    ResponseContentDisposition: `attachment; filename="${filename.replace(/["\\]/g, "_")}"`,
-    ResponseContentType: "application/xml",
-  }), { expiresIn: Number(process.env.DOWNLOAD_TTL_SECONDS || 900) });
 }

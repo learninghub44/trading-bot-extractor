@@ -2,7 +2,7 @@
 
 ## Runtime flow
 
-Browser → Next.js API → job persistence/queue → Python extractor → normalized bot → XML validator → private object storage → short-lived download.
+Browser → Worker (Next.js API) → PayHero → signed webhook → job rows in Supabase → in-Worker extraction engine (inline via waitUntil, retried by Cron) → XML validator → R2 → short-lived signed download served by the Worker.
 
 ## Planned production modules
 

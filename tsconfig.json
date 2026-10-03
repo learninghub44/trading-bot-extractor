@@ -22,7 +22,8 @@
       "@/*": [
         "./*"
       ]
-    }
+    },
+    "skipLibCheck": true
   },
   "include": [
     "next-env.d.ts",
@@ -32,6 +33,7 @@
   ],
   "exclude": [
     "node_modules",
-    "services"
+    ".open-next",
+    ".wrangler"
   ]
 }
