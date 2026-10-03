@@ -12,13 +12,19 @@ def parse_xml(raw: bytes) -> etree._Element:
         huge_tree=False,
         remove_comments=False,
     )
-    return etree.fromstring(raw, parser)
+    root = etree.fromstring(raw, parser)
+    # Bot XML never needs a DTD or entities; reject them outright (XXE hardening).
+    if root.getroottree().docinfo.doctype or any(
+        node.tag is etree.Entity for node in root.iter()
+    ):
+        raise etree.XMLSyntaxError("DOCTYPE_OR_ENTITY_FORBIDDEN", 0, 0, 0)
+    return root
 
 def validate_bot_xml(raw: bytes) -> str:
     root = parse_xml(raw)
     if not isinstance(root.tag, str):
         raise ValueError("INVALID_XML_ROOT")
-    xml = etree.tostring(root, encoding="unicode", xml_declaration=True)
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + etree.tostring(root, encoding="unicode")
     if len(xml.encode("utf-8")) > 10 * 1024 * 1024:
         raise ValueError("XML_TOO_LARGE")
     return xml
