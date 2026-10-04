@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withApi } from "@/lib/api";
 import { adminClient } from "@/lib/server";
 import { verifyCallbackSignature } from "@/lib/payhero";
 import { createHash } from "crypto";
@@ -8,7 +9,7 @@ import { runPendingJobs } from "@/lib/jobs/runner";
 
 const ok = () => NextResponse.json({ ok: true });
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const parsed: unknown = await request.json().catch(() => null);
   if (!parsed || typeof parsed !== "object") return ok();
   const body = parsed as Record<string, unknown>;
@@ -100,3 +101,5 @@ export async function POST(request: Request) {
 
   return ok();
 }
+
+export const POST = withApi(handlePOST);

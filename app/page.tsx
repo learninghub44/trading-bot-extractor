@@ -1,14 +1,50 @@
-"use client";
-import Link from "next/link";
-import {useEffect,useState} from "react";
+import CheckoutForm from "@/components/CheckoutForm";
 
-export default function Home(){
- const [products,setProducts]=useState<{code:string;name:string;priceKes:number}[]>([]); const [url,setUrl]=useState(""); const [phone,setPhone]=useState(""); const [email,setEmail]=useState(""); const [product,setProduct]=useState("single"); const [busy,setBusy]=useState(false); const [message,setMessage]=useState("");
- useEffect(()=>{fetch("/api/products").then(r=>r.json()).then(d=>setProducts(d.products||[]))},[]);
- async function checkout(){
-  setBusy(true);setMessage("");
-  try{const r=await fetch("/api/payments/create",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({packageCode:product,phone,email:email||undefined,sourceUrl:url||undefined})});const d=await r.json();if(!r.ok)throw new Error(d.error);setMessage("Payment request started. Complete the M-Pesa prompt. Your extraction will begin automatically after payment.");}
-  catch(e){setMessage(e instanceof Error?e.message:"Unable to start payment.");}finally{setBusy(false)}
- }
- return <main className="shell"><nav><strong>Trading Bot Extractor</strong><div><Link href="/dashboard">Dashboard</Link><Link href="/login">Sign in</Link></div></nav><section className="hero"><p className="eyebrow">TRADING BOT EXTRACTOR</p><h1>Turn supported bot sources into downloadable XML.</h1><p className="lede">A production extraction engine that tries multiple legitimate strategies and validates the final XML before delivery.</p><div className="grid"><section className="panel"><h2>Extract a bot</h2><input type="url" placeholder="https://example.com/bot" value={url} onChange={e=>setUrl(e.target.value)}/><input placeholder="M-Pesa phone e.g. +254712345678" value={phone} onChange={e=>setPhone(e.target.value)}/><input type="email" placeholder="Email (optional)" value={email} onChange={e=>setEmail(e.target.value)}/><select value={product} onChange={e=>setProduct(e.target.value)}>{products.map(p=><option key={p.code} value={p.code}>{p.name} — KES {p.priceKes}</option>)}</select><button disabled={busy||!url||!phone} onClick={checkout}>{busy?"Starting…":"Pay & extract"}</button>{message&&<p className="notice">{message}</p>}</section><section className="panel"><h2>Pipeline</h2><ol><li>Validate and protect the source request.</li><li>Confirm payment from the server-side callback.</li><li>Run direct, linked, embedded and browser strategies.</li><li>Normalize and validate the resulting XML.</li><li>Store it privately in object storage.</li><li>Issue a short-lived secure download URL.</li></ol></section></div></section></main>
+const FAQ = [
+  ["What links work?", "Public links to a bot file or a page that contains one: direct .xml files, JSON or ZIP files, Google Drive, Dropbox, GitHub and Pastebin share links, and pages that embed the bot. We never bypass logins, paywalls or CAPTCHAs."],
+  ["What if my bot can't be found?", "We retry automatically, including a slower pass for pages that load content with JavaScript. If it still fails, you can upload the bot file from your downloads page and your payment still covers it."],
+  ["How do I get my file?", "Right after payment this page shows a download button. You can always come back to My downloads on the same device, or sign in to access it anywhere. Download links are private and expire after 15 minutes — just request a fresh one."],
+  ["Is my payment safe?", "Payments go through PayHero M-Pesa. We never see your PIN, and the order is only marked paid after a verified confirmation."],
+];
+
+export default function Home() {
+  return (
+    <main>
+      <div className="container">
+        <section className="hero">
+          <span className="eyebrow">● M-Pesa · Instant · Automatic retries</span>
+          <h1>Get your trading bot as a ready-to-use XML file.</h1>
+          <p className="lede">Paste a public bot link, pay with M-Pesa, and download the validated XML in minutes. No sign-up needed.</p>
+        </section>
+
+        <div className="layout">
+          <CheckoutForm />
+          <aside className="card">
+            <h2>How it works</h2>
+            <p className="sub">Three steps, usually under two minutes.</p>
+            <ol className="steps">
+              <li><div><b>Paste the bot link</b><span>Any public link to the bot or the page it lives on.</span></div></li>
+              <li><div><b>Approve the M-Pesa prompt</b><span>Pay on your phone. This page tracks it live.</span></div></li>
+              <li><div><b>Download your XML</b><span>We find it, validate it and hand it over as an untouched file.</span></div></li>
+            </ol>
+          </aside>
+        </div>
+
+        <section className="section">
+          <h2>Built to actually work</h2>
+          <p className="sub">Most failures come from messy sources, so the engine tries several approaches before giving up.</p>
+          <div className="grid3">
+            <div className="tile"><h3>Finds bots in messy places</h3><p>Raw files, ZIPs, JSON APIs, escaped or encoded text, and download links buried a couple of pages deep.</p></div>
+            <div className="tile"><h3>Retries on its own</h3><p>Timeouts and busy servers are retried automatically, so a paid job isn&apos;t lost to a bad moment.</p></div>
+            <div className="tile"><h3>Private, validated delivery</h3><p>Only well-formed bot XML is accepted. Your file is stored privately and shared via an expiring link.</p></div>
+          </div>
+        </section>
+
+        <section className="section faq">
+          <h2 style={{ marginBottom: 16 }}>Questions</h2>
+          {FAQ.map(([q, a]) => (<details key={q}><summary>{q}</summary><p>{a}</p></details>))}
+        </section>
+      </div>
+    </main>
+  );
 }

@@ -7,6 +7,13 @@ export interface R2BucketLike {
   delete(key: string): Promise<void>;
 }
 
+export class ConfigError extends Error {
+  constructor(public missing: string) {
+    super(`Missing environment variable: ${missing}`);
+    this.name = "ConfigError";
+  }
+}
+
 export type AppEnv = Record<string, unknown> & { RESULTS?: R2BucketLike };
 
 export interface WaitUntilCtx {
@@ -25,7 +32,7 @@ export function envNum(env: AppEnv, name: string, fallback: number): number {
 
 export function requireStr(env: AppEnv, name: string): string {
   const value = envStr(env, name);
-  if (!value) throw new Error(`Missing environment variable: ${name}`);
+  if (!value) throw new ConfigError(name);
   return value;
 }
 

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withApi } from "@/lib/api";
 import { z } from "zod";
 import { adminClient } from "@/lib/server";
 import { runtime } from "@/lib/env";
@@ -7,7 +8,7 @@ import { randomUUID } from "crypto";
 
 const schema = z.object({ packageCode: z.enum(["bulk10","bulk25","bulk50","bulk100"]), urls: z.array(z.string().url().max(2048)).min(1).max(100) });
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid bulk request." }, { status: 400 });
   const product = packageByCode(parsed.data.packageCode)!;
@@ -18,3 +19,5 @@ export async function POST(request: Request) {
   await db.from("bulk_items").insert(parsed.data.urls.map((url, index) => ({ bulk_job_id: id, position: index + 1, source_url: url, status: "WAITING_FOR_PAYMENT" })));
   return NextResponse.json({ id, status: "PAYMENT_PENDING", amountKes: product.priceKes });
 }
+
+export const POST = withApi(handlePOST);

@@ -1,3 +1,6 @@
 import { NextResponse } from "next/server";
+import { withApi } from "@/lib/api";
 import { PACKAGES } from "@/lib/pricing";
-export async function GET() { return NextResponse.json({ currency: "KES", products: PACKAGES }); }
+async function handleGET() { return NextResponse.json({ currency: "KES", products: PACKAGES }); }
+
+export const GET = withApi(handleGET);

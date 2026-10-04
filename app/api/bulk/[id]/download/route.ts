@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
+import { withApi } from "@/lib/api";
 import { adminClient } from "@/lib/server";
 import { canAccessOrder } from "@/lib/access";
 import { runtime } from "@/lib/env";
 import { signedDownloadPath } from "@/lib/storage";
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleGET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { env } = runtime();
   const db = adminClient(env);
@@ -16,3 +17,5 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { path, expiresIn } = signedDownloadPath(env, bulk.zip_key, `trading-bot-extractions-${id}.zip`, "application/zip");
   return NextResponse.json({ url: new URL(path, request.url).toString(), expiresIn });
 }
+
+export const GET = withApi(handleGET);

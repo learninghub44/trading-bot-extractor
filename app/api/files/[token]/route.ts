@@ -1,7 +1,8 @@
 import { runtime } from "@/lib/env";
+import { withApi } from "@/lib/api";
 import { getPrivateObject, verifyDownloadToken } from "@/lib/storage";
 
-export async function GET(_: Request, { params }: { params: Promise<{ token: string }> }) {
+async function handleGET(_: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const { env } = runtime();
   const grant = verifyDownloadToken(env, token);
@@ -17,3 +18,5 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
     },
   });
 }
+
+export const GET = withApi(handleGET);

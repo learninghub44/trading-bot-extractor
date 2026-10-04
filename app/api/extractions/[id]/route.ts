@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
+import { withApi } from "@/lib/api";
 import { adminClient } from "@/lib/server";
 import { canAccessOrder } from "@/lib/access";
 import { runtime } from "@/lib/env";
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleGET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { env } = runtime();
   const db = adminClient(env);
@@ -14,3 +15,5 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (!(await canAccessOrder(order))) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   return NextResponse.json(job);
 }
+
+export const GET = withApi(handleGET);

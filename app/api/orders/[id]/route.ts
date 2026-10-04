@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withApi } from "@/lib/api";
 import { adminClient } from "@/lib/server";
 import { canAccessOrder } from "@/lib/access";
 import { runtime } from "@/lib/env";
@@ -6,7 +7,7 @@ import { createJobsForPaidOrder } from "@/lib/jobs/create";
 import { runPendingJobs } from "@/lib/jobs/runner";
 
 /** Order + job status for the payment-return page. Also nudges stuck jobs (safety net next to the cron). */
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleGET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { env, ctx } = runtime();
   const db = adminClient(env);
@@ -27,3 +28,5 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     jobs: (jobs ?? []).map(({ lease_until, ...j }) => { void lease_until; return j; }),
   });
 }
+
+export const GET = withApi(handleGET);

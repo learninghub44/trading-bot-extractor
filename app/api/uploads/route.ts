@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withApi } from "@/lib/api";
 import { randomUUID } from "crypto";
 import { adminClient } from "@/lib/server";
 import { canAccessOrder } from "@/lib/access";
@@ -7,7 +8,7 @@ import { extractFromUpload } from "@/lib/engine/extract";
 import { toEngineError } from "@/lib/engine/errors";
 import { putPrivateObject } from "@/lib/storage";
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const { env } = runtime();
   const form = await request.formData();
   const file = form.get("file");
@@ -42,3 +43,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.code }, { status: 422 });
   }
 }
+
+export const POST = withApi(handlePOST);
