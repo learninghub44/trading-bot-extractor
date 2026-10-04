@@ -1,12 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-/** Minimal R2 surface we use; avoids pulling Workers global types into the Next build. */
-export interface R2BucketLike {
-  put(key: string, value: ArrayBuffer | Uint8Array | string, options?: { httpMetadata?: { contentType?: string; cacheControl?: string } }): Promise<unknown>;
-  get(key: string): Promise<{ body: ReadableStream; arrayBuffer(): Promise<ArrayBuffer>; size: number } | null>;
-  delete(key: string): Promise<void>;
-}
-
 export class ConfigError extends Error {
   constructor(public missing: string) {
     super(`Missing environment variable: ${missing}`);
@@ -14,7 +7,7 @@ export class ConfigError extends Error {
   }
 }
 
-export type AppEnv = Record<string, unknown> & { RESULTS?: R2BucketLike };
+export type AppEnv = Record<string, unknown>;
 
 export interface WaitUntilCtx {
   waitUntil(promise: Promise<unknown>): void;
@@ -44,9 +37,4 @@ export function runtime(): { env: AppEnv; ctx?: WaitUntilCtx } {
   } catch {
     return { env: process.env as AppEnv };
   }
-}
-
-export function bucket(env: AppEnv): R2BucketLike {
-  if (!env.RESULTS) throw new Error("R2 binding RESULTS is not configured.");
-  return env.RESULTS;
 }

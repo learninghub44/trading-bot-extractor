@@ -1,12 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runPendingJobs } from "./runner";
-import { signedDownloadPath, verifyDownloadToken } from "../storage";
 
 const BOT = `<xml><block type="trade_definition" id="1"></block></xml>`;
 
 function fakeStack(job: { id: string; source_url: string; attempts: number }, source: () => Response) {
   const writes: { path: string; method: string; body: unknown }[] = [];
-  const objects = new Map<string, Uint8Array>();
   vi.stubGlobal("fetch", async (input: string | URL, init?: RequestInit) => {
     const url = new URL(input.toString());
     if (url.hostname === "db.test") {
@@ -20,23 +18,22 @@ function fakeStack(job: { id: string; source_url: string; attempts: number }, so
     return source();
   });
   const env = {
-    NEXT_PUBLIC_SUPABASE_URL: "http://db.test", SUPABASE_SERVICE_ROLE_KEY: "k", DNS_CHECK: "off", DOWNLOAD_SIGNING_SECRET: "s3cret",
-    RESULTS: { put: async (k: string, v: Uint8Array) => { objects.set(k, v); }, get: async () => null, delete: async () => undefined },
+    NEXT_PUBLIC_SUPABASE_URL: "http://db.test", SUPABASE_SERVICE_ROLE_KEY: "k", DNS_CHECK: "off",
   };
-  return { env, writes, objects };
+  return { env, writes };
 }
 const rpcCall = (w: { path: string; body: unknown }[], name: string) => w.find((x) => x.path.endsWith(`/rpc/${name}`))?.body as Record<string, unknown> | undefined;
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("runPendingJobs", () => {
-  it("claims, extracts, stores in R2 and completes the job", async () => {
-    const { env, writes, objects } = fakeStack({ id: "job1", source_url: "https://a.com/bot.xml", attempts: 1 }, () => new Response(BOT));
+  it("claims, extracts, stores the XML in the database and completes the job", async () => {
+    const { env, writes } = fakeStack({ id: "job1", source_url: "https://a.com/bot.xml", attempts: 1 }, () => new Response(BOT));
     expect(await runPendingJobs(env, { mode: "inline" })).toBe(1);
     const done = rpcCall(writes, "complete_extraction_job")!;
     expect(done).toMatchObject({ p_id: "job1", p_status: "COMPLETED", p_filename: "bot.xml" });
-    expect([...objects.keys()][0]).toMatch(/^results\/job1\/[0-9a-f]{64}\.xml$/);
-    expect(new TextDecoder().decode(objects.values().next().value)).toContain("trade_definition");
+    expect(String(done.p_result_xml)).toContain("trade_definition");
+    expect(String(done.p_sha256)).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("retries transient failures instead of failing the paid job", async () => {
@@ -73,16 +70,3 @@ describe("runPendingJobs", () => {
   });
 });
 
-describe("signed downloads", () => {
-  const env = { DOWNLOAD_SIGNING_SECRET: "s3cret", DOWNLOAD_TTL_SECONDS: "900" };
-  it("round-trips and rejects tampering and expiry", () => {
-    const { path } = signedDownloadPath(env, "results/a.xml", "bot.xml");
-    const token = path.split("/").pop()!;
-    expect(verifyDownloadToken(env, token)).toMatchObject({ key: "results/a.xml", filename: "bot.xml" });
-    expect(verifyDownloadToken(env, token.slice(0, -2) + "xx")).toBeNull();
-    expect(verifyDownloadToken({ ...env, DOWNLOAD_SIGNING_SECRET: "other" }, token)).toBeNull();
-    vi.useFakeTimers(); vi.setSystemTime(Date.now() + 901_000);
-    expect(verifyDownloadToken(env, token)).toBeNull();
-    vi.useRealTimers();
-  });
-});

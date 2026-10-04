@@ -45,7 +45,7 @@ create table if not exists public.extraction_jobs (
   payment_status text not null default 'PENDING',
   bot_name text,
   filename text,
-  result_key text,
+  result_xml text,
   result_sha256 text,
   result_size bigint,
   validation_status text,
@@ -79,8 +79,6 @@ create table if not exists public.bulk_jobs (
   quantity integer not null,
   amount_kes integer not null,
   status text not null default 'PAYMENT_PENDING',
-  zip_key text,
-  manifest_key text,
   created_at timestamptz not null default now(),
   completed_at timestamptz
 );
@@ -188,7 +186,7 @@ as $$
 $$;
 
 create or replace function public.complete_extraction_job(
-  p_id uuid, p_worker_id text, p_status text, p_result_key text default null,
+  p_id uuid, p_worker_id text, p_status text, p_result_xml text default null,
   p_filename text default null, p_bot_name text default null,
   p_sha256 text default null, p_size bigint default null,
   p_error_code text default null, p_error_message text default null
@@ -200,7 +198,7 @@ set search_path = public
 as $$
   update public.extraction_jobs
   set status=p_status,
-      result_key=p_result_key,
+      result_xml=p_result_xml,
       filename=p_filename,
       bot_name=p_bot_name,
       result_sha256=p_sha256,

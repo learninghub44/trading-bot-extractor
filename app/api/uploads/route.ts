@@ -6,7 +6,6 @@ import { canAccessOrder } from "@/lib/access";
 import { envNum, runtime } from "@/lib/env";
 import { extractFromUpload } from "@/lib/engine/extract";
 import { toEngineError } from "@/lib/engine/errors";
-import { putPrivateObject } from "@/lib/storage";
 
 async function handlePOST(request: Request) {
   const { env } = runtime();
@@ -28,12 +27,10 @@ async function handlePOST(request: Request) {
   const jobId = randomUUID();
   try {
     const result = await extractFromUpload(new Uint8Array(await file.arrayBuffer()), file.name);
-    const key = `results/${jobId}/${result.sha256}.xml`;
-    await putPrivateObject(env, key, new TextEncoder().encode(result.xml), "application/xml");
     const now = new Date().toISOString();
     await db.from("extraction_jobs").insert({
       id: jobId, order_id: orderId, status: "COMPLETED", payment_status: "PAID", source_type: "upload", bot_name: result.botName,
-      filename: result.filename, result_key: key, result_sha256: result.sha256, result_size: result.size, validation_status: "VALID",
+      filename: result.filename, result_xml: result.xml, result_sha256: result.sha256, result_size: result.size, validation_status: "VALID",
       adapter: result.strategy, started_at: now, completed_at: now,
     });
     return NextResponse.json({ id: jobId, status: "COMPLETED", filename: result.filename });

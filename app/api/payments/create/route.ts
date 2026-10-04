@@ -3,7 +3,7 @@ import { withApi } from "@/lib/api";
 import { z } from "zod";
 import { adminClient } from "@/lib/server";
 import { runtime } from "@/lib/env";
-import { createPayHeroPayment, signCallbackReference } from "@/lib/payhero";
+import { assertPayHeroConfigured, createPayHeroPayment, signCallbackReference } from "@/lib/payhero";
 import { packageByCode } from "@/lib/pricing";
 import { normalizeKenyanPhone } from "@/lib/phone";
 import { randomUUID, createHash } from "crypto";
@@ -32,7 +32,9 @@ async function handlePOST(request: Request) {
   const product = packageByCode(parsed.data.packageCode);
   if (!product) return NextResponse.json({ error: "Unknown package." }, { status: 400 });
 
-  const db = adminClient(runtime().env);
+  const { env } = runtime();
+  assertPayHeroConfigured(env); // 503 before any order exists if payments aren't configured
+  const db = adminClient(env);
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const customerToken = randomUUID() + randomUUID();
@@ -64,25 +66,23 @@ async function handlePOST(request: Request) {
   }
 
   try {
-    const payment = await createPayHeroPayment({
-      reference, amount: product.priceKes, phone,
-      email: parsed.data.email, firstName: parsed.data.firstName, lastName: parsed.data.lastName,
-      callbackUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/api/webhooks/payhero?sig=${signCallbackReference(reference)}`,
-      redirectUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/payment/return?order=${orderId}`,
+    const site = String(env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin).replace(/\/$/, "");
+    const name = [parsed.data.firstName, parsed.data.lastName].filter(Boolean).join(" ");
+    const payment = await createPayHeroPayment(env, {
+      reference, amount: product.priceKes, phone, customerName: name || undefined,
+      callbackUrl: `${site}/api/webhooks/payhero?sig=${signCallbackReference(env, reference)}`,
     });
-    // raw_response is always stored; provider_reference only if a callback hasn't already set it.
-    await db.from("payments").update({ raw_response: payment, updated_at: new Date().toISOString() }).eq("id", paymentRow.id);
-    const providerReference = payment?.merchant_reference || payment?.reference || null;
-    if (providerReference) {
-      await db.from("payments").update({ provider_reference: providerReference }).eq("id", paymentRow.id).is("provider_reference", null);
-    }
+    await db.from("payments").update({
+      raw_response: payment, provider_reference: payment.reference ?? null, updated_at: new Date().toISOString(),
+    }).eq("id", paymentRow.id);
     const cookieStore=await cookies();
     cookieStore.set("tbe_access", customerToken, {httpOnly:true,secure:process.env.NODE_ENV==="production",sameSite:"lax",path:"/",maxAge:60*60*24*30});
-    return NextResponse.json({ orderId, reference, payment });
+    return NextResponse.json({ orderId, reference, status: payment.status ?? "QUEUED" });
   } catch (error) {
     await db.from("orders").update({ status: "PAYMENT_FAILED", failure_reason: error instanceof Error ? error.message : "PAYMENT_ERROR" }).eq("id", orderId).eq("status", "PAYMENT_PENDING");
     await db.from("payments").update({ status: "FAILED", updated_at: new Date().toISOString() }).eq("id", paymentRow.id).eq("status", "PENDING");
     console.error("[payhero]", error instanceof Error ? error.message : error);
+    await db.from("orders").update({ failure_reason: "PAYMENT_START_FAILED" }).eq("id", orderId);
     return NextResponse.json({ error: "We couldn't send the M-Pesa prompt. Check the number and try again.", code: "PAYMENT_START_FAILED" }, { status: 502 });
   }
 }
