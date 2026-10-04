@@ -6,9 +6,15 @@
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "observability": { "enabled": true },
+  // Keep variables added in the Cloudflare dashboard (e.g. PAYHERO_CHANNEL_ID) when Git deploys run.
+  "keep_vars": true,
   // Every minute: retry/finish extraction jobs and create jobs for paid orders the webhook missed.
   "triggers": { "crons": ["* * * * *"] },
   "vars": {
+    // Public values (safe to commit; the anon key is protected by row-level security).
+    "NEXT_PUBLIC_SITE_URL": "https://bot.christech.co.ke",
+    "NEXT_PUBLIC_SUPABASE_URL": "https://ikvsufpannlhiiqnlosu.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_5nM7BHAspFrXn29WewnjgQ_mg8QzQxS",
     "RESULT_RETENTION_DAYS": "30",
     "MAX_UPLOAD_BYTES": "10485760",
     "MAX_SOURCE_BYTES": "10485760",
@@ -19,5 +25,5 @@
   // Secrets (never in this file): `npx wrangler secret put <NAME>` for
   // SUPABASE_SERVICE_ROLE_KEY, PAYHERO_API_USERNAME, PAYHERO_API_PASSWORD, PAYHERO_WEBHOOK_SECRET,
   // and (optional) CF_BROWSER_RENDERING_TOKEN.
-  // Plain vars to set in the dashboard or here: NEXT_PUBLIC_SITE_URL, NEXT_PUBLIC_SUPABASE_URL, PAYHERO_CHANNEL_ID, CF_ACCOUNT_ID.
+  // Still to add in the dashboard as a plain variable: PAYHERO_CHANNEL_ID (and CF_ACCOUNT_ID if you use browser rendering).
 }
